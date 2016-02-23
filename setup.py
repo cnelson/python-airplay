@@ -31,11 +31,8 @@ setup(
 
     install_requires=[
         'zeroconf',
+        'click',
     ],
-
-    extras_require={
-        'cli': ['click']
-    },
 
     tests_require=[
         'mock'
@@ -45,7 +42,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'airplay = airplay.cli:main [cli]'
+            'airplay = airplay.cli:main'
         ]
     }
 )
