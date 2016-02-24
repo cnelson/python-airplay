@@ -12,7 +12,7 @@ import httpheader
 
 # Work around a bug in some versions of Python's SocketServer :(
 # http://bugs.python.org/issue14574
-def finish_fix(self, *args, **kwargs):
+def finish_fix(self, *args, **kwargs):  # pragma: no cover
     try:
         if not self.wfile.closed:
             self.wfile.flush()
@@ -47,7 +47,7 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
         os.chdir(os.path.dirname(filename))
 
         httpd = SocketServer.TCPServer(('', 0), cls)
-        httpd.allowed_filename = filename
+        httpd.allowed_filename = os.path.realpath(filename)
         httpd.allowed_host = allowed_host
 
         if queue:
@@ -62,7 +62,7 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
             except:  # NOQA
                 pass
 
-    def handle(self):
+    def handle(self):   # pragma: no cover
         """Handle requests.
 
         We override this because we need to work around a bug in some
@@ -115,16 +115,18 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
 
             first = ranges.range_specs[0].first
             last = ranges.range_specs[0].last + 1
-
         except httpheader.ParseError:
             pass
         except httpheader.RangeUnsatisfiableError:
             self.send_error(416, "Requested range not possible")
             return
+        except ValueError:
+            # this can get raised if the Range request is weird like bytes=2-1
+            # not sure why this doesn't raise as a ParseError, but whatevs
+            self.send_error(400, "Bad Request")
 
         try:
             with open(path, 'rb') as fh:
-
                 if ranges is None:
                     self.send_response(200)
                 else:

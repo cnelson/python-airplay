@@ -1,7 +1,11 @@
+import os
 import socket
+import tempfile
 import time
 import unittest
 import uuid
+
+import urllib2
 
 from mimetools import Message
 from StringIO import StringIO
@@ -10,7 +14,7 @@ from mock import patch, Mock
 
 from zeroconf import ServiceStateChange
 
-from .airplay import FakeSocket, AirPlayEvent, AirPlay
+from .airplay import FakeSocket, AirPlayEvent, AirPlay, RangeHTTPServer
 
 
 class TestFakeSocket(unittest.TestCase):
@@ -441,6 +445,244 @@ class TestAirPlayDiscovery(unittest.TestCase):
         assert len(devices) == 0
 
 
+class TestRangeHTTPServerACL(unittest.TestCase):
+    def setUp(self):
+
+        self.data = 'abcdefghijklmnopqrstuvwxyz' * 1024
+        fd, path = tempfile.mkstemp()
+        os.write(fd, self.data)
+        os.close(fd)
+        self.testfile = path
+
+        os.chdir(os.path.dirname(self.testfile))
+
+        self.path = '/' + os.path.basename(self.testfile)
+
+        self.server = Mock()
+
+        self.client = ('127.0.0.1', 9160)
+
+    def fake_request(self, path):
+        self.http = RangeHTTPServer(FakeSocket(''), self.client, self.server)
+        self.http.handle = lambda x: None
+        self.http.send_error = Mock()
+
+        return self.http.check_path(path)
+
+    def tearDown(self):
+        try:
+            os.remove(self.testfile)
+        except OSError:
+            pass
+
+    def test_allowed_host(self):
+        """ValueError is raised if an unallowed host attempts access"""
+
+        self.server = Mock(allowed_host='192.0.2.99')
+
+        self.assertRaises(ValueError, self.fake_request, self.path)
+
+        self.http.send_error.assert_called_with(400, 'Bad Request')
+
+    def test_no_directories(self):
+        """ValueError is raised if directory access is attempted"""
+
+        self.server = Mock(allowed_host='127.0.0.1')
+
+        self.assertRaises(ValueError, self.fake_request, '/')
+
+        self.http.send_error.assert_called_with(400, 'Bad Request')
+
+    def test_allowed_filename(self):
+        """ValueError is raised if any other files are requested"""
+
+        self.server = Mock(
+            allowed_filename=os.path.realpath(self.testfile),
+            allowed_host='127.0.0.1'
+        )
+
+        result = self.fake_request(self.path)
+
+        assert result[0] == self.server.allowed_filename
+
+        self.assertRaises(ValueError, self.fake_request, '/../../../../../.././etc/passwd')
+        self.http.send_error.assert_called_with(400, 'Bad Request')
+
+        self.assertRaises(ValueError, self.fake_request, '/foo')
+        self.http.send_error.assert_called_with(400, 'Bad Request')
+
+    def test_file_open(self):
+        """ValueError is raised if we cannot open or stat the file"""
+
+        self.server = Mock(
+            allowed_filename=os.path.realpath(self.testfile),
+            allowed_host='127.0.0.1'
+        )
+
+        # can't open file
+        os.chmod(self.testfile, 0000)
+        self.assertRaises(ValueError, self.fake_request, self.path)
+        self.http.send_error.assert_called_with(500, 'Internal Server Error')
+
+        # file doesn't exist
+        os.remove(self.testfile)
+        self.assertRaises(ValueError, self.fake_request, self.path)
+        self.http.send_error.assert_called_with(500, 'Internal Server Error')
+
+
+class TestRangeHTTPServerOSError(unittest.TestCase):
+    @patch('airplay.airplay.socket', new_callable=lambda: MockSocket)
+    def setUp(self, mock):
+
+        mock.sock = MockSocket()
+        mock.sock.recv_data = """HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n\r\n"""
+
+        self.data = 'abcdefghijklmnopqrstuvwxyz' * 1024
+        fd, path = tempfile.mkstemp()
+        os.write(fd, self.data)
+        os.close(fd)
+        self.testfile = path
+
+        # patch our check function to return the expected data
+        # but simulate the file disappaearing between the check
+        # and when we re-open it for sending
+        def no_check_path(self, *args, **kwargs):
+            stats = os.stat(path)
+            os.remove(path)
+
+            return path, stats
+
+        with patch('airplay.airplay.RangeHTTPServer.check_path', side_effect=no_check_path):
+            self.ap = AirPlay('127.0.0.1', 916, 'test')
+            self.test_url = self.ap.serve(path)
+
+        assert self.test_url.startswith('http://127.0.0.1')
+
+    def tearDown(self):
+        try:
+            os.remove(self.testfile)
+        except OSError:
+            pass
+
+    def test_os_error(self):
+        """Problems reading the file after check return HTTP 500"""
+        # mock out check_path to just return path
+        # call path with an invalid file
+
+        request = urllib2.Request(self.test_url)
+
+        error = None
+        try:
+            urllib2.urlopen(request)
+        except urllib2.URLError as exc:
+            error = exc
+        except:
+            pass
+
+        assert error.code == 500
+
+
+class TestRangeHTTPServer(unittest.TestCase):
+    @patch('airplay.airplay.socket', new_callable=lambda: MockSocket)
+    def setUp(self, mock):
+
+        mock.sock = MockSocket()
+        mock.sock.recv_data = """HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n\r\n"""
+
+        self.ap = AirPlay('127.0.0.1', 916, 'test')
+
+        self.data = 'abcdefghijklmnopqrstuvwxyz' * 1024
+        fd, path = tempfile.mkstemp()
+        os.write(fd, self.data)
+        os.close(fd)
+
+        self.test_url = self.ap.serve(path)
+
+        assert self.test_url.startswith('http://127.0.0.1')
+
+        self.testfile = path
+
+    def tearDown(self):
+        os.remove(self.testfile)
+
+    def test_no_multiple_ranges(self):
+        """Multiple Ranges are not supported"""
+
+        request = urllib2.Request(self.test_url)
+        request.add_header('range', 'bytes=1-4,9-90')
+
+        error = None
+        try:
+            urllib2.urlopen(request)
+        except urllib2.URLError as exc:
+            error = exc
+
+        assert error.code == 400
+
+    def test_unsatisfiable_range(self):
+        """Range requests out of bounds return HTTP 416"""
+
+        request = urllib2.Request(self.test_url)
+
+        # make our request start past the end of our file
+        first = len(self.data) + 1024
+
+        request.add_header('range', 'bytes={0}-'.format(first))
+
+        error = None
+        try:
+            urllib2.urlopen(request)
+        except urllib2.URLError as exc:
+            error = exc
+
+        assert error.code == 416
+
+    def test_bad_range(self):
+        """Malformed (not empty) range requests return HTTP 400"""
+
+        request = urllib2.Request(self.test_url)
+        request.add_header('range', 'bytes=2-1')
+
+        error = None
+        try:
+            urllib2.urlopen(request)
+        except urllib2.URLError as exc:
+            error = exc
+
+        assert error.code == 400
+
+    def test_full_get(self):
+        """When we make a GET request with no Range header, the entire file is returned"""
+        request = urllib2.Request(self.test_url)
+
+        assert self.data == urllib2.urlopen(request).read()
+
+    def test_range_get(self):
+        """When we make a GET request with a Range header, the proper chunk is returned with appropriate headers"""
+        request = urllib2.Request(self.test_url)
+        request.add_header('range', 'bytes=1-4')
+
+        response = urllib2.urlopen(request)
+
+        assert int(response.info().getheader('content-length')) == 4
+        assert response.info().getheader('content-range') == "bytes 1-4/{0}".format(len(self.data))
+
+        assert self.data[1:5] == response.read()
+
+    def test_head(self):
+        """When we make a HEAD request, no body is returned"""
+        request = urllib2.Request(self.test_url)
+        request.get_method = lambda: 'HEAD'
+
+        response = urllib2.urlopen(request)
+
+        # HEAD should return no body
+        assert response.read() == ''
+
+        # we should get the proper content-header back
+        assert int(response.info().getheader('content-length')) == len(self.data)
+
+
 class FakeZeroconf(object):
     def __init__(self, info=None):
         self.info = info
@@ -495,6 +737,9 @@ class MockSocket(object):
 
     def getpeername(self, *args, **kwargs):
         return ('192.0.2.23', 9160)
+
+    def getsockname(self, *args, **kwargs):
+        return ('127.0.0.1', 9160)
 
     @classmethod
     def socket(cls, *args, **kwargs):

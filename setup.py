@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='airplay',
 
-    version='0.0.1',
+    version='0.0.2',
 
     description='A python client for AirPlay video',
 

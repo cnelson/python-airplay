@@ -361,7 +361,7 @@ class AirPlay(object):
         """Start a HTTP server to serve local content to the AirPlay device
 
         Args:
-            path(str):  An absoulte path to a local file
+            path(str):  An absoulte path to a local file to be served.
 
         Returns:
             str:    An absolute url to the `path` suitable for passing to play()
