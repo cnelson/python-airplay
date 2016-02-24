@@ -1,5 +1,7 @@
 import argparse
+import os
 import time
+
 
 from airplay import AirPlay
 
@@ -42,12 +44,12 @@ def humanize_seconds(secs):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Playback a remote video file via AirPlay. "
+        description="Playback a local or remote video file via AirPlay. "
                     "This does not do any on-the-fly transcoding (yet), "
                     "so the file must already be suitable for the AirPlay device."
     )
 
-    parser.add_argument('path', help='A URL to a video file')
+    parser.add_argument('path', help='An absolute path or URL to a video file')
     parser.add_argument('--position', '--pos', '-p', default=0.0, type=float, help='Where to being playback [0.0-1.0]')
     parser.add_argument('--atv', default=None, help='Playback video to a specific AppleTV [<host/ip>:(<port>)]')
     args = parser.parse_args()
@@ -62,8 +64,14 @@ def main():
     position = 0
     state = 'loading'
 
+    path = args.path
+
+    # if the url is on our local disk, then we need to spin up a server to start it
+    if os.path.exists(path):
+        path = ap.serve(path)
+
     # play what they asked
-    ap.play(args.path, args.position)
+    ap.play(path, args.position)
 
     # stay in this loop until we exit
     with click.progressbar(length=100, show_eta=False) as bar:

@@ -32,6 +32,7 @@ setup(
     install_requires=[
         'zeroconf',
         'click',
+        'httpheader',
     ],
 
     tests_require=[

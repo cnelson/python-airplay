@@ -1,4 +1,5 @@
 import atexit
+import os
 import plistlib
 import socket
 import time
@@ -12,6 +13,8 @@ from Queue import Empty
 from StringIO import StringIO
 
 from zeroconf import ServiceBrowser, ServiceStateChange, Zeroconf
+
+from .http import RangeHTTPServer
 
 
 class FakeSocket():
@@ -353,6 +356,30 @@ class AirPlay(object):
 
         # convert the strings we get back to floats (which they should be)
         return {kk: float(vv) for (kk, vv) in response.items()}
+
+    def serve(self, path):
+        """Start a HTTP server to serve local content to the AirPlay device
+
+        Args:
+            path(str):  An absoulte path to a local file
+
+        Returns:
+            str:    An absolute url to the `path` suitable for passing to play()
+        """
+
+        q = Queue()
+        self._http_server = Process(target=RangeHTTPServer.start, args=(path, self.host, q))
+        self._http_server.start()
+
+        atexit.register(lambda: self._http_server.terminate())
+
+        server_address = (self.control_socket.getsockname()[0], q.get(True)[1])
+
+        return 'http://{0}:{1}/{2}'.format(
+            server_address[0],
+            server_address[1],
+            urllib.pathname2url(os.path.basename(path))
+        )
 
     @classmethod
     def find(cls, timeout=10, fast=False):
