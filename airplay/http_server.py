@@ -1,11 +1,22 @@
 import os
 import posixpath
 import socket
-import SocketServer
 import sys
-import urllib
 
-from BaseHTTPServer import BaseHTTPRequestHandler
+try:
+    from BaseHTTPServer import BaseHTTPRequestHandler
+except ImportError:
+    from http.server import BaseHTTPRequestHandler
+
+try:
+    import SocketServer
+except ImportError:
+    import socketserver as SocketServer
+
+try:
+    from urllib import unquote
+except ImportError:
+    from urllib.parse import unquote
 
 try:
     import httpheader
@@ -182,7 +193,7 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
         """
 
         # get full path to file requested
-        path = posixpath.normpath(urllib.unquote(path))
+        path = posixpath.normpath(unquote(path))
         path = os.path.join(os.getcwd(), path.lstrip('/'))
 
         # if we have an allowed host, then only allow access from it

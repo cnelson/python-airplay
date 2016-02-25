@@ -1,19 +1,43 @@
 import atexit
+import email
 import os
-import plistlib
 import socket
 import time
-import urllib
 import warnings
 
-from BaseHTTPServer import BaseHTTPRequestHandler
-from httplib import HTTPResponse
-from mimetools import Message
 from multiprocessing import Process, Queue
-from Queue import Empty
-from StringIO import StringIO
 
-from .http import RangeHTTPServer
+try:
+    from BaseHTTPServer import BaseHTTPRequestHandler
+except ImportError:
+    from http.server import BaseHTTPRequestHandler
+
+try:
+    from httplib import HTTPResponse
+except ImportError:
+    from http.client import HTTPResponse
+
+try:
+    from plistlib import readPlistFromString as plist_loads
+except ImportError:
+    from plistlib import loads as plist_loads
+
+try:
+    from Queue import Empty
+except ImportError:
+    from queue import Empty
+
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import BytesIO as StringIO
+
+try:
+    from urllib import urlencode
+    from urllib import pathname2url
+except ImportError:
+    from urllib.parse import urlencode
+    from urllib.request import pathname2url
 
 try:
     from zeroconf import ServiceBrowser, ServiceStateChange, Zeroconf
@@ -24,6 +48,8 @@ try:
     import httpheader
 except ImportError:
     pass
+
+from .http_server import RangeHTTPServer
 
 
 class FakeSocket():
@@ -63,7 +89,7 @@ class AirPlayEvent(BaseHTTPRequestHandler):
             raise RuntimeError('Received an event with a zero length body.')
 
         # parse XML plist
-        self.event = plistlib.readPlistFromString(self.rfile.read(content_length))
+        self.event = plist_loads(self.rfile.read(content_length))
 
 
 class AirPlay(object):
@@ -123,7 +149,7 @@ class AirPlay(object):
             event_socket.connect((self.host, self.port))
 
             # "upgrade" this connection to Reverse HTTP
-            raw_request = "POST /reverse HTTP/1.1\r\nUpgrade: PTTH/1.0\r\nConnection: Upgrade\r\n\r\n"
+            raw_request = b"POST /reverse HTTP/1.1\r\nUpgrade: PTTH/1.0\r\nConnection: Upgrade\r\n\r\n"
             event_socket.send(raw_request)
 
             raw_response = event_socket.recv(AirPlay.RECV_SIZE)
@@ -166,7 +192,7 @@ class AirPlay(object):
                     )
 
                 # acknowledge it
-                event_socket.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                event_socket.send(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
 
                 # skip non-video events
                 if req.event.get('category', None) != 'video':
@@ -243,9 +269,14 @@ class AirPlay(object):
 
         # generate the request
         if len(kwargs):
-            uri = uri + '?' + urllib.urlencode(kwargs)
+            uri = uri + '?' + urlencode(kwargs)
 
-        request = "{0} {1} HTTP/1.1\r\nContent-Length: {2}\r\n\r\n{3}".format(method, uri, len(body), body)
+        request = method + " " + uri + " HTTP/1.1\r\nContent-Length: " + str(len(body)) + "\r\n\r\n" + body
+
+        try:
+            request = bytes(request, 'UTF-8')
+        except TypeError:
+            pass
 
         # send it
         self.control_socket.send(request)
@@ -270,10 +301,16 @@ class AirPlay(object):
             raise RuntimeError('Response returned without a content type!')
 
         if content_type == 'text/parameters':
-            return Message(StringIO(resp.read()))
+            body = resp.read()
+            try:
+                body = str(body, 'UTF-8')
+            except TypeError:
+                pass
+
+            return email.message_from_string(body)
 
         if content_type == 'text/x-apple-plist+xml':
-            return plistlib.readPlistFromString(resp.read())
+            return plist_loads(resp.read())
 
         raise RuntimeError('Response received with unknown content-type: {0}'.format(content_type))
 
@@ -397,7 +434,7 @@ class AirPlay(object):
         return 'http://{0}:{1}/{2}'.format(
             server_address[0],
             server_address[1],
-            urllib.pathname2url(os.path.basename(path))
+            pathname2url(os.path.basename(path))
         )
 
     @classmethod
