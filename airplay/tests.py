@@ -3,9 +3,9 @@ import socket
 import tempfile
 import time
 import unittest
-import uuid
-
 import urllib2
+import uuid
+import warnings
 
 from mimetools import Message
 from StringIO import StringIO
@@ -582,6 +582,81 @@ class TestRangeHTTPServerOSError(unittest.TestCase):
         assert error.code == 500
 
 
+class TestLazyLoading(unittest.TestCase):
+    @patch('airplay.airplay.socket', new_callable=lambda: MockSocket)
+    def setUp(self, mock):
+
+        mock.sock = MockSocket()
+        mock.sock.recv_data = """HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n\r\n"""
+
+        import airplay
+        import http
+
+        # Is there a better way to test Lazy Imports than this?
+        # mucking around in __dict__ feels gross, but nothing else seemed to work :/
+        # tried mock.patch.dict with sys.modules
+        # tried mock.patch.dict with airplay.__dict__
+        # tried patch, but it doesn't have a delete option
+        self.apnuke = {
+            'httpheader': None,
+            'Zeroconf': None,
+            'ServiceBrowser': None
+        }
+
+        self.httpnuke = {
+            'httpheader': None
+        }
+
+        for thing in self.apnuke.keys():
+            try:
+                self.apnuke[thing] = airplay.__dict__[thing]
+                del airplay.__dict__[thing]
+            except KeyError:
+                pass
+
+        for thing in self.httpnuke.keys():
+            try:
+                self.httpnuke[thing] = http.__dict__[thing]
+                del http.__dict__[thing]
+            except KeyError:
+                pass
+
+        self.ap = airplay.AirPlay('127.0.0.1', 916, 'test')
+
+    def tearDown(self):
+        import airplay
+        import http
+
+        for kk, vv in self.apnuke.items():
+            if vv is not None:
+                airplay.__dict__[kk] = vv
+
+        for kk, vv in self.httpnuke.items():
+            if vv is not None:
+                http.__dict__[kk] = vv
+
+    def test_serve_no_httpheaders(self):
+        """None is returned from serve() if we don't have the needed modules"""
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert self.ap.serve('/tmp/foo') is None
+
+    def test_find_no_zeroconf(self):
+        """None is returned from find() if we dont have zeroconf installed"""
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert self.ap.find() is None
+
+    @patch('airplay.airplay.RangeHTTPServer.check_path', side_effect=lambda x: (x, Mock()))
+    @patch('airplay.airplay.RangeHTTPServer.send_error')
+    def test_get_no_range(self, mock, _):
+        RangeHTTPServer(FakeSocket('GET HTTP/1.0\r\n\r\n'), ('127.0.0.1', 9160), Mock())
+
+        mock.assert_called_with(501, 'Range support is missing')
+
+
 class TestRangeHTTPServer(unittest.TestCase):
     @patch('airplay.airplay.socket', new_callable=lambda: MockSocket)
     def setUp(self, mock):
@@ -592,6 +667,7 @@ class TestRangeHTTPServer(unittest.TestCase):
         self.ap = AirPlay('127.0.0.1', 916, 'test')
 
         self.data = 'abcdefghijklmnopqrstuvwxyz' * 1024
+
         fd, path = tempfile.mkstemp()
         os.write(fd, self.data)
         os.close(fd)

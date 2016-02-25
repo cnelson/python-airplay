@@ -4,6 +4,7 @@ import plistlib
 import socket
 import time
 import urllib
+import warnings
 
 from BaseHTTPServer import BaseHTTPRequestHandler
 from httplib import HTTPResponse
@@ -12,9 +13,17 @@ from multiprocessing import Process, Queue
 from Queue import Empty
 from StringIO import StringIO
 
-from zeroconf import ServiceBrowser, ServiceStateChange, Zeroconf
-
 from .http import RangeHTTPServer
+
+try:
+    from zeroconf import ServiceBrowser, ServiceStateChange, Zeroconf
+except ImportError:
+    pass
+
+try:
+    import httpheader
+except ImportError:
+    pass
 
 
 class FakeSocket():
@@ -367,6 +376,16 @@ class AirPlay(object):
             str:    An absolute url to the `path` suitable for passing to play()
         """
 
+        try:
+            httpheader
+        except NameError:
+            warnings.warn(
+                'serve() requires the httpheader package but it could not be imported. '
+                'Install it if you wish to use this method. https://pypi.python.org/pypi/httpheader',
+                stacklevel=2
+            )
+            return None
+
         q = Queue()
         self._http_server = Process(target=RangeHTTPServer.start, args=(path, self.host, q))
         self._http_server.start()
@@ -416,9 +435,16 @@ class AirPlay(object):
                 )
 
         # search for AirPlay devices
-        zeroconf = Zeroconf()
-
-        browser = ServiceBrowser(zeroconf, "_airplay._tcp.local.", handlers=[on_service_state_change])  # NOQA
+        try:
+            zeroconf = Zeroconf()
+            browser = ServiceBrowser(zeroconf, "_airplay._tcp.local.", handlers=[on_service_state_change])  # NOQA
+        except NameError:
+            warnings.warn(
+                'AirPlay.find() requires the zeroconf package but it could not be imported. '
+                'Install it if you wish to use this method. https://pypi.python.org/pypi/zeroconf',
+                stacklevel=2
+            )
+            return None
 
         # enforce the timeout
         timeout = time.time() + timeout

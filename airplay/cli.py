@@ -2,7 +2,6 @@ import argparse
 import os
 import time
 
-
 from airplay import AirPlay
 
 import click

@@ -7,7 +7,10 @@ import urllib
 
 from BaseHTTPServer import BaseHTTPRequestHandler
 
-import httpheader
+try:
+    import httpheader
+except ImportError:
+    pass
 
 
 # Work around a bug in some versions of Python's SocketServer :(
@@ -115,6 +118,11 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
 
             first = ranges.range_specs[0].first
             last = ranges.range_specs[0].last + 1
+        except NameError:
+            # this gets called if we don't have the httpheaders module
+            # which we lazy load
+            self.send_error(501, "Range support is missing")
+            return
         except httpheader.ParseError:
             pass
         except httpheader.RangeUnsatisfiableError:
@@ -124,6 +132,7 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
             # this can get raised if the Range request is weird like bytes=2-1
             # not sure why this doesn't raise as a ParseError, but whatevs
             self.send_error(400, "Bad Request")
+            return
 
         try:
             with open(path, 'rb') as fh:
