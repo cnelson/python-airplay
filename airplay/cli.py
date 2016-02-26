@@ -21,12 +21,12 @@ def get_airplay_device(hostport):
     devices = AirPlay.find(fast=True)
 
     if len(devices) == 0:
-        raise RuntimeError('No AppleTV could be found.  Use --atv to manually specify an AppleTV')
+        raise RuntimeError('No AirPlay devices were found.  Use --device to manually specify an device.')
     elif len(devices) == 1:
         return devices[0]
     elif len(devices) > 1:
-        error = "Multiple AppleTVs were found.  Use --atv to select a specific one.\n\n"
-        error += "Available Apple TVs:\n"
+        error = "Multiple AirPlay devices were found.  Use --device to select a specific one.\n\n"
+        error += "Available AirPlay devices:\n"
         error += "--------------------\n"
         for dd in devices:
             error += "\t* {0}: {1}:{2}\n".format(dd.name, dd.host, dd.port)
@@ -48,14 +48,33 @@ def main():
                     "so the file must already be suitable for the AirPlay device."
     )
 
-    parser.add_argument('path', help='An absolute path or URL to a video file')
-    parser.add_argument('--position', '--pos', '-p', default=0.0, type=float, help='Where to being playback [0.0-1.0]')
-    parser.add_argument('--atv', default=None, help='Playback video to a specific AppleTV [<host/ip>:(<port>)]')
+    parser.add_argument(
+        'path',
+        help='An absolute path or URL to a video file'
+    )
+
+    parser.add_argument(
+        '--position',
+        '--pos',
+        '-p',
+        default=0.0,
+        type=float,
+        help='Where to being playback [0.0-1.0]'
+    )
+
+    parser.add_argument(
+        '--device',
+        '--dev',
+        '-d',
+        default=None,
+        help='Playback video to a specific device [<host/ip>:(<port>)]'
+    )
+
     args = parser.parse_args()
 
     # connect to the AirPlay device we want to control
     try:
-        ap = get_airplay_device(args.atv)
+        ap = get_airplay_device(args.device)
     except (ValueError, RuntimeError) as exc:
         parser.error(exc)
 
