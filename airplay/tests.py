@@ -357,7 +357,7 @@ class TestAirPlayControls(unittest.TestCase):
 
         expected_body = "Content-Location: foo\nStart-Position: 0.5\n\n"
 
-        self.ap.play('foo', pos=0.5)
+        self.ap.play('foo', position=0.5)
 
         self.ap._command.assert_called_with('/play', 'POST', expected_body)
 

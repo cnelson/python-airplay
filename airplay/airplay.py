@@ -325,7 +325,7 @@ class AirPlay(object):
         """
         return self._command('/server-info')
 
-    def play(self, url, pos=0.0):
+    def play(self, url, position=0.0):
         """Start video playback.
 
         Args:
@@ -339,7 +339,11 @@ class AirPlay(object):
         that the AirPlay server accepted the request and will *attempt* playback
         """
 
-        return self._command('/play', 'POST', "Content-Location: {0}\nStart-Position: {1}\n\n".format(url, float(pos)))
+        return self._command(
+            '/play',
+            'POST',
+            "Content-Location: {0}\nStart-Position: {1}\n\n".format(url, float(position))
+        )
 
     def rate(self, rate):
         """Change the playback rate.
