@@ -395,6 +395,12 @@ class AirPlay(object):
 
         response = self._command('/scrub', method, **args)
 
+        # When making a POST request to change the scrub position
+        # The server does not respond with the params
+        # So we need to make a secord get request after to fetch the data :/
+        if position:
+            return self.scrub()
+
         # convert the strings we get back to floats (which they should be)
         return {kk: float(vv) for (kk, vv) in response.items()}
 

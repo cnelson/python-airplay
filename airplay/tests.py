@@ -16,9 +16,9 @@ except ImportError:
     from urllib.error import URLError
 
 try:
-    from mock import patch, Mock
+    from mock import call, patch, Mock
 except ImportError:
-    from unittest.mock import patch, Mock
+    from unittest.mock import call, patch, Mock
 
 from zeroconf import ServiceStateChange
 
@@ -408,7 +408,9 @@ class TestAirPlayControls(unittest.TestCase):
 
         self.ap.scrub(91.6)
 
-        self.ap._command.assert_called_with('/scrub', 'POST', position=91.6)
+        calls = [call('/scrub', 'POST', position=91.6), call('/scrub', 'GET')]
+
+        self.ap._command.assert_has_calls(calls)
 
 
 class TestAirPlayDiscovery(unittest.TestCase):
