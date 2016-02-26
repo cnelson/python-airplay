@@ -612,11 +612,6 @@ class TestLazyLoading(unittest.TestCase):
         except ImportError:
             import airplay
 
-        try:
-            import http_server
-        except ImportError:
-            import airplay.http_server as http_server
-
         # Is there a better way to test Lazy Imports than this?
         # mucking around in __dict__ feels gross, but nothing else seemed to work :/
         # tried mock.patch.dict with sys.modules
@@ -625,26 +620,14 @@ class TestLazyLoading(unittest.TestCase):
         # needs to work with python 2 and python 3
 
         self.apnuke = {
-            'httpheader': None,
             'Zeroconf': None,
             'ServiceBrowser': None
-        }
-
-        self.httpnuke = {
-            'httpheader': None
         }
 
         for thing in self.apnuke.keys():
             try:
                 self.apnuke[thing] = airplay.__dict__[thing]
                 del airplay.__dict__[thing]
-            except KeyError:
-                pass
-
-        for thing in self.httpnuke.keys():
-            try:
-                self.httpnuke[thing] = http_server.__dict__[thing]
-                del http_server.__dict__[thing]
             except KeyError:
                 pass
 
@@ -656,25 +639,9 @@ class TestLazyLoading(unittest.TestCase):
         except ImportError:
             import airplay
 
-        try:
-            import http_server
-        except ImportError:
-            import airplay.http_server as http_server
-
         for kk, vv in self.apnuke.items():
             if vv is not None:
                 airplay.__dict__[kk] = vv
-
-        for kk, vv in self.httpnuke.items():
-            if vv is not None:
-                http_server.__dict__[kk] = vv
-
-    def test_serve_no_httpheaders(self):
-        """None is returned from serve() if we don't have the needed modules"""
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            assert self.ap.serve('/tmp/foo') is None
 
     def test_find_no_zeroconf(self):
         """None is returned from find() if we dont have zeroconf installed"""
@@ -682,13 +649,6 @@ class TestLazyLoading(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             assert self.ap.find() is None
-
-    @patch('airplay.airplay.RangeHTTPServer.check_path', side_effect=lambda x: (x, Mock()))
-    @patch('airplay.airplay.RangeHTTPServer.send_error')
-    def test_get_no_range(self, mock, _):
-        RangeHTTPServer(FakeSocket(b'GET HTTP/1.0\r\n\r\n'), ('127.0.0.1', 9160), Mock())
-
-        mock.assert_called_with(501, 'Range support is missing')
 
 
 class TestRangeHTTPServer(unittest.TestCase):

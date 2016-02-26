@@ -18,10 +18,7 @@ try:
 except ImportError:
     from urllib.parse import unquote
 
-try:
-    import httpheader
-except ImportError:
-    pass
+from .vendor import httpheader
 
 
 # Work around a bug in some versions of Python's SocketServer :(
@@ -129,11 +126,6 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
 
             first = ranges.range_specs[0].first
             last = ranges.range_specs[0].last + 1
-        except NameError:
-            # this gets called if we don't have the httpheaders module
-            # which we lazy load
-            self.send_error(501, "Range support is missing")
-            return
         except httpheader.ParseError:
             pass
         except httpheader.RangeUnsatisfiableError:

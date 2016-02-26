@@ -1,4 +1,6 @@
-This code is in the public domain.
+This code is in the public domain unless a more specific license statement
+exists in a file.  In that case, what the file says is what it is.
+(Currently this only applies to the vendor directory)
 
 If the concept of public domain doesn't exist where you are, and you care
 enough, submit a PR with a license change :)

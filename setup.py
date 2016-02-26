@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='airplay',
 
-    version='0.0.3',
+    version='0.0.4',
 
     description='A python client for AirPlay video',
 
@@ -33,11 +33,6 @@ setup(
     install_requires=[
         'zeroconf',
         'click',
-        'httpheader==1.2'
-    ],
-
-    dependency_links=[
-        'git+https://github.com/cnelson/httpheader.git@python3_support#egg=httpheader-1.2'
     ],
 
     tests_require=[

@@ -44,11 +44,6 @@ try:
 except ImportError:
     pass
 
-try:
-    import httpheader
-except ImportError:
-    pass
-
 from .http_server import RangeHTTPServer
 
 
@@ -412,16 +407,6 @@ class AirPlay(object):
         Returns:
             str:    An absolute url to the `path` suitable for passing to play()
         """
-
-        try:
-            httpheader
-        except NameError:
-            warnings.warn(
-                'serve() requires the httpheader package but it could not be imported. '
-                'Install it if you wish to use this method. https://pypi.python.org/pypi/httpheader',
-                stacklevel=2
-            )
-            return None
 
         q = Queue()
         self._http_server = Process(target=RangeHTTPServer.start, args=(path, self.host, q))
