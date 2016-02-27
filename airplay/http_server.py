@@ -41,12 +41,13 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
     It supports *single* Range requests which is all (it seems) is required.
     """
     @classmethod
-    def start(cls, filename, allowed_host=None, queue=None):
+    def start(cls, paths=[], allowed_host=None, queue=None):
         """Start a SocketServer.TCPServer using this class to handle requests
 
         Args:
-            filename(str):  An absolute path to a single file to server
-                            Access will only be granted to this file
+            paths(list):     A list of abosolute paths to files to serve.
+                                Only access to these files will be allowed.
+                                Directories are not permitted.
 
             allowed_host(str, optional):    If provided, only this host will
                                             be allowed to access the server
@@ -54,11 +55,65 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
             queue(Queue.Queue, optional):   If provided, the host/port the server
                                             binds to will be put() into this queue
 
+        Raises:
+            ValueError:     There was an issue with the provided paths
+
         """
-        os.chdir(os.path.dirname(filename))
+
+        allowed_files = {}
+
+        for fn in list(set(paths)):
+            fn = os.path.realpath(fn)
+
+            if os.path.isdir(fn):
+                raise ValueError("Directories cannot be served. {0}".format(fn))
+
+            bn = os.path.basename(fn)
+
+            if bn in allowed_files:
+                raise ValueError('Cannot serve two files with the same name in different directories')
+                # If you are reading this, we've clearly made an invalid assumption. Let's get you
+                # caught up:
+
+                # We have a couple of critical requirements for this server:
+
+                # Requirement 1 (obviously): Don't serve anything except the files the caller
+                # specifically allows.  We really don't want to start a buggy server that ends up
+                # being responsible for a data exfil when all we are supposed to do is play video!
+
+                # Requirement 2: Expose as little information to the AirPlay server as possible.
+                # In many cases we blindly connect to whomeever is announcing AirPlay services via
+                # Bonjour so we must assume the AirPlay device is an attacker.
+
+                # Knowing this, we don't want to take the easy approach and have our URLs be:
+                # http://<host>:<port>/<path> where path is the abosolute path to the file we want
+                # want to serve. While we have code that protects from an attacker accessing any
+                # file via a request to http://host/etc/passwd (for example) we don't want to expose
+                # any information about our file system layout if we can help it.
+
+                # My first thought to serve this was to send the AirPlay server hashes and then look
+                # up the the real path to the file and serve it.  In psuedo-y code:
+
+                # allowed_filenames[hash(fn)] = fn
+                # URL == http://<host>:<port>/<hash>
+
+                # However when we need to serve HLS segments this breaks as ffmpeg generates the
+                # index for us, and while we can control the filenames it uses, we can't get it to
+                # write the ts file to 'foo.ts', but write hash('foo.ts') to the index.
+
+                # So, here we are with this janky solution which should have worked since we only
+                # planned on serving a single video file, or two HLS files with names that will be
+                # different.
+
+                # Given that you are reading this, the above is now probably an invalid assumption
+                # So, do you have a better idea?  Hit me up:
+
+                # https://github.com/cnelson/python-airplay/issues
+
+            allowed_files[bn] = fn
 
         httpd = SocketServer.TCPServer(('', 0), cls)
-        httpd.allowed_filename = os.path.realpath(filename)
+        httpd.allowed_filenames = allowed_files
         httpd.allowed_host = allowed_host
 
         if queue:
@@ -184,22 +239,16 @@ class RangeHTTPServer(BaseHTTPRequestHandler):
             ValueError:     The path could not be accessed (exception will say why)
         """
 
-        # get full path to file requested
-        path = posixpath.normpath(unquote(path))
-        path = os.path.join(os.getcwd(), path.lstrip('/'))
-
         # if we have an allowed host, then only allow access from it
         if self.server.allowed_host and self.client_address[0] != self.server.allowed_host:
             self.send_error(400, "Bad Request")
             raise ValueError('Client is not allowed')
 
-        # don't do directory indexing
-        if os.path.isdir(path):
-            self.send_error(400, "Bad Request")
-            raise ValueError("Requested path is a directory")
-
-        # if they try to request something else, don't serve it
-        if path != self.server.allowed_filename:
+        # get full path to file requested
+        path = posixpath.normpath(unquote(path)).lstrip('/')
+        try:
+            path = self.server.allowed_filenames[path]
+        except KeyError:
             self.send_error(400, "Bad Request")
             raise ValueError("Requested path was not in the allowed list")
 

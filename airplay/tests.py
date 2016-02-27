@@ -465,18 +465,72 @@ class TestAirPlayDiscovery(unittest.TestCase):
         assert len(devices) == 0
 
 
+class TestRangeHTTPServerStartUp(unittest.TestCase):
+    def test_no_directories(self):
+        """ValueError is raised if directory serving is attempted"""
+
+        try:
+            tempdir = tempfile.mkdtemp()
+
+            def go():
+                RangeHTTPServer.start([tempdir])
+
+            self.assertRaises(ValueError, go)
+        finally:
+            os.rmdir(tempdir)
+
+    def test_no_files_with_same_name(self):
+        """ValueError is raised if two files with same name are served"""
+
+        try:
+            tempdir1 = tempfile.mkdtemp()
+            tempdir2 = tempfile.mkdtemp()
+
+            tempfn1 = os.path.join(tempdir1, 'foo.txt')
+            tempfn2 = os.path.join(tempdir2, 'foo.txt')
+
+            with open(tempfn1, 'w') as fh1:
+                with open(tempfn2, 'w') as fh2:
+                    fh1.write('foo')
+                    fh2.write('foo')
+
+            def go():
+                RangeHTTPServer.start([tempfn1, tempfn2])
+
+            self.assertRaises(ValueError, go)
+        finally:
+            os.remove(tempfn1)
+            os.remove(tempfn2)
+
+            os.rmdir(tempdir1)
+            os.rmdir(tempdir2)
+
+
 class TestRangeHTTPServerACL(unittest.TestCase):
     def setUp(self):
 
+        # generate two test files
         self.data = b'abcdefghijklmnopqrstuvwxyz' * 1024
+
         fd, path = tempfile.mkstemp()
         os.write(fd, self.data)
         os.close(fd)
-        self.testfile = path
+        self.testone = path
+        self.pathone = '/' + os.path.basename(self.testone)
 
-        os.chdir(os.path.dirname(self.testfile))
+        fd, path = tempfile.mkstemp()
+        os.write(fd, self.data)
+        os.close(fd)
+        self.testtwo = path
+        self.pathtwo = '/' + os.path.basename(self.testtwo)
 
-        self.path = '/' + os.path.basename(self.testfile)
+        fn1 = os.path.realpath(self.testone)
+        fn2 = os.path.realpath(self.testtwo)
+
+        self.allowed_filenames = {
+            os.path.basename(fn1): fn1,
+            os.path.basename(fn2): fn2,
+        }
 
         self.server = Mock()
 
@@ -491,7 +545,8 @@ class TestRangeHTTPServerACL(unittest.TestCase):
 
     def tearDown(self):
         try:
-            os.remove(self.testfile)
+            os.remove(self.testone)
+            os.remove(self.testtwo)
         except OSError:
             pass
 
@@ -500,16 +555,7 @@ class TestRangeHTTPServerACL(unittest.TestCase):
 
         self.server = Mock(allowed_host='192.0.2.99')
 
-        self.assertRaises(ValueError, self.fake_request, self.path)
-
-        self.http.send_error.assert_called_with(400, 'Bad Request')
-
-    def test_no_directories(self):
-        """ValueError is raised if directory access is attempted"""
-
-        self.server = Mock(allowed_host='127.0.0.1')
-
-        self.assertRaises(ValueError, self.fake_request, '/')
+        self.assertRaises(ValueError, self.fake_request, self.pathone)
 
         self.http.send_error.assert_called_with(400, 'Bad Request')
 
@@ -517,13 +563,15 @@ class TestRangeHTTPServerACL(unittest.TestCase):
         """ValueError is raised if any other files are requested"""
 
         self.server = Mock(
-            allowed_filename=os.path.realpath(self.testfile),
+            allowed_filenames=self.allowed_filenames,
             allowed_host='127.0.0.1'
         )
 
-        result = self.fake_request(self.path)
+        result = self.fake_request(self.pathone)
+        assert result[0] in self.allowed_filenames.values()
 
-        assert result[0] == self.server.allowed_filename
+        result = self.fake_request(self.pathtwo)
+        assert result[0] in self.allowed_filenames.values()
 
         self.assertRaises(ValueError, self.fake_request, '/../../../../../.././etc/passwd')
         self.http.send_error.assert_called_with(400, 'Bad Request')
@@ -535,18 +583,18 @@ class TestRangeHTTPServerACL(unittest.TestCase):
         """ValueError is raised if we cannot open or stat the file"""
 
         self.server = Mock(
-            allowed_filename=os.path.realpath(self.testfile),
+            allowed_filenames=self.allowed_filenames,
             allowed_host='127.0.0.1'
         )
 
         # can't open file
-        os.chmod(self.testfile, 0000)
-        self.assertRaises(ValueError, self.fake_request, self.path)
+        os.chmod(self.testone, 0000)
+        self.assertRaises(ValueError, self.fake_request, self.pathone)
         self.http.send_error.assert_called_with(500, 'Internal Server Error')
 
         # file doesn't exist
-        os.remove(self.testfile)
-        self.assertRaises(ValueError, self.fake_request, self.path)
+        os.remove(self.testtwo)
+        self.assertRaises(ValueError, self.fake_request, self.pathtwo)
         self.http.send_error.assert_called_with(500, 'Internal Server Error')
 
 

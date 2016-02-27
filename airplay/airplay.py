@@ -419,7 +419,7 @@ class AirPlay(object):
         """
 
         q = Queue()
-        self._http_server = Process(target=RangeHTTPServer.start, args=(path, self.host, q))
+        self._http_server = Process(target=RangeHTTPServer.start, args=([path], self.host, q))
         self._http_server.start()
 
         atexit.register(lambda: self._http_server.terminate())
