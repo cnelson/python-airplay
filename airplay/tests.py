@@ -1,5 +1,6 @@
 import email
 import os
+import shutil
 import socket
 import tempfile
 import time
@@ -23,6 +24,8 @@ except ImportError:
 from zeroconf import ServiceStateChange
 
 from .airplay import FakeSocket, AirPlayEvent, AirPlay, RangeHTTPServer
+
+from .ffmpeg import FFmpeg, EncoderNotInstalledError, MediaParseError
 
 
 class TestFakeSocket(unittest.TestCase):
@@ -803,6 +806,96 @@ class TestRangeHTTPServer(unittest.TestCase):
 
         # we should get the proper content-header back
         assert int(msg['content-length']) == len(self.data)
+
+
+class TestFFmpeg(unittest.TestCase):
+    def setUp(self):
+        self.work_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.work_dir)
+
+    def test_bad_path_ffmpeg(self):
+        """if ffmpeg does not exist, EncoderNotInstalledError is raised"""
+        def go():
+            FFmpeg(ffmpeg=os.path.join(self.work_dir, 'ffmpeg'), ffprobe='true')
+
+        self.assertRaises(EncoderNotInstalledError, go)
+
+    def test_bad_path_ffprobe(self):
+        """if probe does not exist, EncoderNotInstalledError is raised"""
+        def go():
+            FFmpeg(ffmpeg='true', ffprobe=os.path.join(self.work_dir, 'ffprobe'))
+
+        self.assertRaises(EncoderNotInstalledError, go)
+
+    def test_old_ffmpeg(self):
+        """If ffmpeg returns 1 during the test, EncoderNotInstalledError is raised"""
+        def go():
+            FFmpeg(ffmpeg='false', ffprobe='true')
+
+        self.assertRaises(EncoderNotInstalledError, go)
+
+    def test_old_ffprobe(self):
+        """If ffprobe returns 1 during the test, MediaParseError is raised"""
+        def go():
+            FFmpeg(ffmpeg='true', ffprobe='false')
+
+        self.assertRaises(EncoderNotInstalledError, go)
+
+    def test_bad_encoder(self):
+        """If ffmpeg exists, but outputs unexpected info, we bail with details"""
+
+        # TODO: make this work on windows
+        FAKE_FFPROBE = """#!/bin/sh\n echo '{"streams": [{"codec_name": "h264", "codec_type": "video"}, {"codec_name": "invalid", "codec_type": "audio"}], "format": {"format_name": "mpegts"}}'"""  # NOQA
+
+        ffp = os.path.join(self.work_dir, 'fake_ffprobe')
+
+        with open(ffp, 'w') as fh:
+            fh.write(FAKE_FFPROBE)
+
+        os.chmod(ffp, 0o0700)
+
+        def go():
+            FFmpeg(ffmpeg='true', ffprobe=ffp)
+
+        self.assertRaises(AssertionError, go)
+
+    def test_run_quiet(self):
+        """When _run is called with quiet=True no stderr is produced"""
+        pass
+
+    def test_run_loud(self):
+        """When _run is called with quiet=Flse, stderr is produced"""
+        pass
+
+    def test_ffprobe_bad_file(self):
+        """When ffprobe returns an error, or invalid JSON, MediaParseError is raised"""
+        pass
+
+    def test_ffprobe_good_file(self):
+        """When ffprobe returns 0 and valid JSON a simplified object is returned"""
+        pass
+
+    def test_segment_single_file(self):
+        """A single file can be segmented"""
+        pass
+
+    def test_segment_multiple_files(self):
+        """Multiple files can be segmented"""
+        pass
+
+    def test_segment_output_opts(self):
+        """If specified, we can control the output dir and file names used"""
+        pass
+
+    def test_segment_invalid_input(self):
+        """If an invalid input is provided, MediaParseError is raised"""
+        pass
+
+    def test_segment_invalid_output_dir(self):
+        """If an invalid output directory is provided, ValueError is raised"""
+        pass
 
 
 class FakeZeroconf(object):
