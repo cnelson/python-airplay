@@ -808,9 +808,120 @@ class TestRangeHTTPServer(unittest.TestCase):
         assert int(msg['content-length']) == len(self.data)
 
 
+class TestAirPlayEncoder(unittest.TestCase):
+    @patch('airplay.airplay.socket.socket', new_callable=lambda: MockSocket)
+    def setUp(self, sockmock):
+        self.ap = AirPlay('127.0.0.1')
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_lazy_encoder(self, ffmock):
+        """If encoder is not specified, then FFmpeg is returned"""
+
+        assert self.ap.encoder == ffmock()
+        assert self.ap.encoder == self.ap._encoder
+
+    def test_lazy_encoder_manual(self):
+        """If encoder is specified, it is returned for each call made"""
+
+        lol = Mock()
+        self.ap.encoder = lol
+
+        assert self.ap.encoder == lol
+        assert self.ap.encoder == self.ap._encoder
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_can_play_good(self, ffmock):
+        """can_play returns true for mp4(h264, aac) files"""
+
+        ffmock.probe.return_value = (u'mov,mp4,m4a,3gp,3g2,mj2', [(u'video', u'h264'), (u'audio', u'aac')])
+        self.ap.encoder = ffmock
+
+        assert self.ap.can_play('good.mp4') is True
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_can_play_bad_format(self, ffmock):
+        """any other format causes can_play to return false"""
+
+        ffmock.probe.return_value = (u'avi', [(u'video', u'mpeg4'), (u'audio', u'mp3')])
+        self.ap.encoder = ffmock
+
+        assert self.ap.can_play('bad.mp4') is False
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_can_play_missing_track(self, ffmock):
+        """An empty container returns false"""
+
+        ffmock.probe.return_value = (u'mov,mp4,m4a,3gp,3g2,mj2', [])
+        self.ap.encoder = ffmock
+
+        assert self.ap.can_play('empty.mp4') is False
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_can_play_bad_track_order(self, ffmock):
+        """If video track is not the first track can_play returns false"""
+        ffmock.probe.return_value = (u'mov,mp4,m4a,3gp,3g2,mj2', [(u'audio', u'aac'), (u'video', u'h264')])
+        self.ap.encoder = ffmock
+
+        assert self.ap.can_play('weird_order.mp4') is False
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_can_play_multiple_audio_tracks(self, ffmock):
+        """Multiple audio tracks are ok, as long as one is aac"""
+
+        ffmock.probe.return_value = (u'mov,mp4,m4a,3gp,3g2,mj2', [(u'video', u'h264'), (u'audio', u'ac3'), (u'audio', u'aac')])  # NOQA
+        self.ap.encoder = ffmock
+
+        assert self.ap.can_play('multitrack.mp4') is True
+
+    @patch('airplay.airplay.FFmpeg')
+    def test_convert_uses_our_directory(self, ffmock):
+        """convert uses the tempdir given to it"""
+
+        work_dir = tempfile.mkdtemp()
+
+        def segment(input, work_dir):
+            with open(os.path.join(work_dir, 'airplay.m3u8'), 'w') as fh:
+                fh.write('foo')
+
+        ffmock = ffmock()
+        ffmock.segment = segment
+
+        self.ap.encoder = ffmock
+
+        index, transport_stream = self.ap.convert('foo.avi', work_dir)
+
+        assert index.startswith(work_dir) is True
+        assert index.endswith('airplay.m3u8') is True
+
+        assert transport_stream.startswith(work_dir) is True
+        assert transport_stream.endswith('airplay.ts')
+
+# actually test ffmpeg if we have it installed
+try:
+    real_ffmpeg = FFmpeg()
+except:
+    real_ffmpeg = None
+
+
 class TestFFmpeg(unittest.TestCase):
     def setUp(self):
         self.work_dir = tempfile.mkdtemp()
+
+        self.mock_ffp = self.write_exe(
+            'good_ffprobe',
+            """#!/bin/sh\n echo '{"streams": [{"codec_name": "h264", "codec_type": "video"}, {"codec_name": "aac", "codec_type": "audio"}], "format": {"format_name": "mpegts"}}'"""  # NOQA
+        )
+
+    def write_exe(self, filename, contents):
+
+        fn = os.path.join(self.work_dir, filename)
+
+        with open(fn, 'w') as fh:
+            fh.write(contents)
+
+        os.chmod(fn, 0o0700)
+
+        return fn
 
     def tearDown(self):
         shutil.rmtree(self.work_dir)
@@ -846,15 +957,10 @@ class TestFFmpeg(unittest.TestCase):
     def test_bad_encoder(self):
         """If ffmpeg exists, but outputs unexpected info, we bail with details"""
 
-        # TODO: make this work on windows
-        FAKE_FFPROBE = """#!/bin/sh\n echo '{"streams": [{"codec_name": "h264", "codec_type": "video"}, {"codec_name": "invalid", "codec_type": "audio"}], "format": {"format_name": "mpegts"}}'"""  # NOQA
-
-        ffp = os.path.join(self.work_dir, 'fake_ffprobe')
-
-        with open(ffp, 'w') as fh:
-            fh.write(FAKE_FFPROBE)
-
-        os.chmod(ffp, 0o0700)
+        ffp = self.write_exe(
+            'fake_ffprobe',
+            """#!/bin/sh\n echo '{"streams": [{"codec_name": "h264", "codec_type": "video"}, {"codec_name": "invalid", "codec_type": "audio"}], "format": {"format_name": "mpegts"}}'"""  # NOQA
+        )
 
         def go():
             FFmpeg(ffmpeg='true', ffprobe=ffp)
@@ -863,39 +969,141 @@ class TestFFmpeg(unittest.TestCase):
 
     def test_run_quiet(self):
         """When _run is called with quiet=True no stderr is produced"""
-        pass
+
+        noisy = self.write_exe(
+            'noisy.sh',
+            """#!/bin/sh\n>&2 echo stderr\necho stdout"""
+        )
+
+        ff = FFmpeg(ffmpeg='true', ffprobe=self.mock_ffp)
+
+        try:
+            check = bytes('stderr', 'UTF-8')
+        except TypeError:
+            check = 'stderr'
+
+        assert check not in ff._run([noisy])
 
     def test_run_loud(self):
-        """When _run is called with quiet=Flse, stderr is produced"""
-        pass
+        """When _run is called with quiet=False, stderr is produced"""
+
+        noisy = self.write_exe(
+            'noisy.sh',
+            """#!/bin/sh\n>&2 echo stderr\necho stdout"""
+        )
+
+        ff = FFmpeg(ffmpeg='true', ffprobe=self.mock_ffp)
+
+        try:
+            check = bytes('stderr', 'UTF-8')
+        except TypeError:
+            check = 'stderr'
+
+        assert check in ff._run([noisy], quiet=False)
 
     def test_ffprobe_bad_file(self):
         """When ffprobe returns an error, or invalid JSON, MediaParseError is raised"""
-        pass
+
+        ff = FFmpeg(ffmpeg='true', ffprobe=self.mock_ffp)
+
+        ff.ffprobe = self.write_exe(
+            'badfile_ffprobe',
+            """#!/bin/sh\n exit 1"""
+        )
+
+        def go():
+            ff.probe('some-bad-file.dat')
+
+        self.assertRaises(MediaParseError, go)
 
     def test_ffprobe_good_file(self):
         """When ffprobe returns 0 and valid JSON a simplified object is returned"""
-        pass
 
+        ff = FFmpeg(ffmpeg='true', ffprobe=self.mock_ffp)
+
+        container, streams = ff.probe('some-file.mp4')
+
+        assert container == 'mpegts'
+        assert streams[0][0] == 'video'
+        assert streams[0][1] == 'h264'
+
+    @unittest.skipIf(real_ffmpeg is None, "ffmpeg not installed")
     def test_segment_single_file(self):
         """A single file can be segmented"""
-        pass
 
+        try:
+            index, stream = real_ffmpeg.segment('LAVFI-TESTSRC', options=['-vframes', '1'])
+
+            container, streams = real_ffmpeg.probe(stream)
+        finally:
+            os.remove(index)
+            os.remove(stream)
+
+        assert container == 'mpegts'
+        assert len(streams) == 1
+
+    @unittest.skipIf(real_ffmpeg is None, "ffmpeg not installed")
     def test_segment_multiple_files(self):
         """Multiple files can be segmented"""
-        pass
 
+        try:
+            index, stream = real_ffmpeg.segment(
+                ['LAVFI-TESTSRC', 'LAVFI-ANULLSRC'],
+                options=['-vframes', '1']
+            )
+
+            container, streams = real_ffmpeg.probe(stream)
+        finally:
+            os.remove(index)
+            os.remove(stream)
+
+        assert container == 'mpegts'
+        assert len(streams) == 2
+
+    @unittest.skipIf(real_ffmpeg is None, "ffmpeg not installed")
     def test_segment_output_opts(self):
         """If specified, we can control the output dir and file names used"""
-        pass
+        index, stream = real_ffmpeg.segment(
+            ['LAVFI-TESTSRC', 'LAVFI-ANULLSRC'],
+            output_directory=self.work_dir,
+            index='lol.m3u8',
+            transport_stream='haha.ts',
+            options=['-vframes', '1']
+        )
 
+        container, streams = real_ffmpeg.probe(stream)
+
+        assert container == 'mpegts'
+        assert len(streams) == 2
+
+        assert index.startswith(self.work_dir)
+        assert index.endswith('lol.m3u8')
+        assert stream.startswith(self.work_dir)
+        assert stream.endswith('haha.ts')
+
+    @unittest.skipIf(real_ffmpeg is None, "ffmpeg not installed")
     def test_segment_invalid_input(self):
         """If an invalid input is provided, MediaParseError is raised"""
-        pass
+        def go():
+            index, stream = real_ffmpeg.segment(
+                ['LAVFI-TESTSRC', '/dev/null'],
+                output_directory=self.work_dir,
+                options=['-vframes', '1']
+            )
+
+        self.assertRaises(MediaParseError, go)
 
     def test_segment_invalid_output_dir(self):
         """If an invalid output directory is provided, ValueError is raised"""
-        pass
+
+        def go():
+            index, stream = real_ffmpeg.segment(
+                'LAVFI-TESTSRC',
+                output_directory=os.path.join(self.work_dir, 'non-existant'),
+                options=['-vframes', '1']
+            )
+
+        self.assertRaises(ValueError, go)
 
 
 class FakeZeroconf(object):

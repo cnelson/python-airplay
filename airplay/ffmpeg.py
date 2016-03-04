@@ -62,8 +62,8 @@ class FFmpeg(object):
             raise EncoderNotInstalledError("Cannot execute {0}".format(cmd[0]))
         finally:
             try:
-                DEVNULL.close()
-            except NameError:
+                stderr.close()
+            except (NameError, AttributeError):
                 pass
 
     def probe(self, path):
