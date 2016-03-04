@@ -2,7 +2,9 @@ import argparse
 import os
 import time
 
-from airplay import AirPlay, FFmpeg, MediaParseError, EncoderNotInstalledError
+from .airplay import AirPlay
+
+from .ffmpeg import FFmpeg, MediaParseError, EncoderNotInstalledError
 
 import click
 
@@ -89,6 +91,12 @@ def main():
         help='The ffprobe binary to use for parsing (if needed)'
     )
 
+    parser.add_argument(
+        '--tmpdir',
+        default=None,
+        help='Use this temp directory when converting files'
+    )
+
     args = parser.parse_args()
 
     # connect to the AirPlay device we want to control
@@ -110,7 +118,7 @@ def main():
 
         try:
             if not ap.can_play(target):
-                target = ap.convert(target)
+                target = ap.convert(target, tmpdir=args.tmpdir)
                 target = list(target)
         except EncoderNotInstalledError:
             print("Encoder not installed, skipping conversion")
