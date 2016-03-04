@@ -56,6 +56,8 @@ class FFmpeg(object):
                 stderr = subprocess.STDOUT
 
             return subprocess.check_output(cmd, stderr=stderr)
+        except KeyboardInterrupt:
+            return
         except OSError:
             raise EncoderNotInstalledError("Cannot execute {0}".format(cmd[0]))
         finally:
@@ -179,7 +181,7 @@ class FFmpeg(object):
             if emsg in exc.output:
                 raise MediaParseError("Unknown input format: {0}".format(paths))
             else:
-                raise EncoderNotInstalledError("{0} must be at least version 3.0.".format(self.ffmpeg))
+                raise EncoderNotInstalledError("{0} failed. It must be at least version 3.0.".format(self.ffmpeg))
 
         return index, transport_stream
 

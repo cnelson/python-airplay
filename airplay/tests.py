@@ -625,7 +625,7 @@ class TestRangeHTTPServerOSError(unittest.TestCase):
 
         with patch('airplay.airplay.RangeHTTPServer.check_path', side_effect=no_check_path):
             self.ap = AirPlay('127.0.0.1', 916, 'test')
-            self.test_url = self.ap.serve(path)
+            self.test_url = self.ap.serve(path)[0]
 
         assert self.test_url.startswith('http://127.0.0.1')
 
@@ -719,7 +719,7 @@ class TestRangeHTTPServer(unittest.TestCase):
         os.write(fd, self.data)
         os.close(fd)
 
-        self.test_url = self.ap.serve(path)
+        self.test_url = self.ap.serve(path)[0]
 
         assert self.test_url.startswith('http://127.0.0.1')
 

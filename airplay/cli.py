@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 
-from airplay import AirPlay
+from airplay import AirPlay, FFmpeg, MediaParseError, EncoderNotInstalledError
 
 import click
 
@@ -45,7 +45,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Playback a local or remote video file via AirPlay. "
                     "This does not do any on-the-fly transcoding (yet), "
-                    "so the file must already be suitable for the AirPlay device."
+                    "so the file must already be suitable for the AirPlay device.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
     parser.add_argument(
@@ -69,6 +70,24 @@ def main():
         default=None,
         help='Playback video to a specific device [<host/ip>:(<port>)]'
     )
+    parser.add_argument(
+        '--force',
+        '-f',
+        default=False,
+        action='store_true',
+        help='Force playback of path as given. Do not attempt parsing or conversion'
+    )
+
+    parser.add_argument(
+        '--ffmpeg',
+        default='ffmpeg',
+        help='The ffmpeg binary to use for conversion (if needed)'
+    )
+    parser.add_argument(
+        '--ffprobe',
+        default='ffprobe',
+        help='The ffprobe binary to use for parsing (if needed)'
+    )
 
     args = parser.parse_args()
 
@@ -78,18 +97,36 @@ def main():
     except (ValueError, RuntimeError) as exc:
         parser.error(exc)
 
+    target = args.path
+
+    if not args.force:
+        # if they gave us custom paths to an encoder, then die if they
+        # are wrong
+        try:
+            if args.ffmpeg != 'ffmpeg' or args.ffprobe != 'ffprobe':
+                ap.encoder = FFmpeg(ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+        except EncoderNotInstalledError as exc:
+            parser.exit(exc)
+
+        try:
+            if not ap.can_play(target):
+                target = ap.convert(target)
+                target = list(target)
+        except EncoderNotInstalledError:
+            print("Encoder not installed, skipping conversion")
+        except MediaParseError:
+            parser.exit("Unkonwn input format.  Use --force if you are sure your AirPlay server can play it")
+
+    # if the url is on our local disk, then we need to spin up a server to start it
+    if isinstance(target, list) or os.path.exists(target):
+        target = ap.serve(target)[0]
+
     duration = 0
     position = 0
     state = 'loading'
 
-    path = args.path
-
-    # if the url is on our local disk, then we need to spin up a server to start it
-    if os.path.exists(path):
-        path = ap.serve(path)
-
     # play what they asked
-    ap.play(path, args.position)
+    ap.play(target, args.position)
 
     # stay in this loop until we exit
     with click.progressbar(length=100, show_eta=False) as bar:

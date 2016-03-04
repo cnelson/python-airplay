@@ -1,7 +1,9 @@
 import atexit
 import email
 import os
+import shutil
 import socket
+import tempfile
 import time
 import warnings
 
@@ -45,6 +47,7 @@ except ImportError:
     pass
 
 from .http_server import RangeHTTPServer
+from .ffmpeg import FFmpeg
 
 
 class FakeSocket():
@@ -96,6 +99,8 @@ class AirPlay(object):
     """
     RECV_SIZE = 8192
 
+    _encoder = None
+
     def __init__(self, host, port=7000, name=None, timeout=5):
         """Connect to an AirPlay device on `host`:`port` optionally named `name`
 
@@ -120,6 +125,18 @@ class AirPlay(object):
             self.control_socket.connect((host, port))
         except socket.error as exc:
             raise ValueError("Unable to connect to {0}:{1}: {2}".format(host, port, exc))
+
+    @property
+    def encoder(self):
+        """Don't instantiate the encoder until we access it the first time"""
+        if not self._encoder:
+            self._encoder = FFmpeg()
+        return self._encoder
+
+    @encoder.setter
+    def encoder(self, val):
+        """Allow manually setting the encoder"""
+        self._encoder = val
 
     def _monitor_events(self, event_queue, control_queue):  # pragma: no cover
         """Connect to `host`:`port` and use reverse HTTP to receive events.
@@ -195,7 +212,6 @@ class AirPlay(object):
 
                 # send the event back to the parent process
                 event_queue.put(req.event)
-
         except KeyboardInterrupt:
             return
         except Exception as exc:
@@ -408,29 +424,104 @@ class AirPlay(object):
         # convert the strings we get back to floats (which they should be)
         return {kk: float(vv) for (kk, vv) in response.items()}
 
-    def serve(self, path):
+    def serve(self, paths):
         """Start a HTTP server to serve local content to the AirPlay device
 
         Args:
-            path(str):  An absoulte path to a local file to be served.
+            paths(list):  A list of absolute paths to be served.
 
         Returns:
-            str:    An absolute url to the `path` suitable for passing to play()
+            list(str):    An absolute urls to the paths requested to serve
+
         """
 
+        if not isinstance(paths, list):
+            paths = [paths]
+
         q = Queue()
-        self._http_server = Process(target=RangeHTTPServer.start, args=([path], self.host, q))
+        self._http_server = Process(target=RangeHTTPServer.start, args=(paths, self.host, q))
         self._http_server.start()
 
         atexit.register(lambda: self._http_server.terminate())
 
         server_address = (self.control_socket.getsockname()[0], q.get(True)[1])
 
-        return 'http://{0}:{1}/{2}'.format(
+        return ['http://{0}:{1}/{2}'.format(
             server_address[0],
             server_address[1],
             pathname2url(os.path.basename(path))
-        )
+        ) for path in paths]
+
+    def convert(self, paths, tmpdir=None):
+        """Start a encoder process to convert `path` to a version that can be
+        played on an AirPlay device.
+
+        paths (list):           A list of one or more input files or URLs
+                                which will be combined and converted
+
+        tmpdir (str):           A path to a directory to store the converted video.
+                                If not specified tempfile.mkdtemp() will be used
+
+        Returns:
+            path (str):         A path to a file suitable for passing to serve()
+
+        Raises:
+            MediaParseError:    Unable to parse one of the input paths
+            EncoderNotInstalledError:   ffmpeg could not be executed or was not the correct version
+        """
+
+        work_dir = tempfile.mkdtemp(dir=tmpdir)
+
+        index = os.path.join(work_dir, 'airplay.m3u8')
+        transport_stream = os.path.join(work_dir, 'airplay.ts')
+
+        self._converter = Process(target=self.encoder.segment, args=(paths, work_dir))
+        self._converter.start()
+
+        atexit.register(shutil.rmtree, work_dir)
+
+        # wait until the target file exists or the converter dies
+
+        while not os.path.exists(index) and self._converter.is_alive():
+            time.sleep(.1)
+
+        return index, transport_stream
+
+    def can_play(self, path):
+        """Use the encoder to inspect the file and see if we can play it
+
+        Args:
+            path(str):  An absoulte path or URL to a file to be checked.
+
+        Returns:
+            True:   The file can be played.
+            False:  The file cannot be played.
+
+        Raises:
+            airplay.MediaParseError:            `path` could not be parsed.
+
+            airplay.EncoderNotInstalledError:   ffprobe is not installed or is
+                                                an incorrect version.
+
+        """
+        container, streams = self.encoder.probe(path)
+
+        # container is mov/mp4
+        if container != 'mov,mp4,m4a,3gp,3g2,mj2':
+            return False
+
+        try:
+            # first track is h264 video
+            if streams[0][0] != 'video' or streams[0][1] != 'h264':
+                return False
+
+            # some track is aac audio
+            if 'aac' not in [x[1] for x in streams if x[0] == 'audio']:
+                return False
+        except IndexError:
+            return False
+
+        return True
 
     @classmethod
     def find(cls, timeout=10, fast=False):
