@@ -7,6 +7,7 @@ from .airplay import AirPlay
 from .ffmpeg import FFmpeg, MediaParseError, EncoderNotInstalledError
 
 import click
+import youtube_dl
 
 
 def get_airplay_device(hostport):
@@ -41,6 +42,23 @@ def humanize_seconds(secs):
     h, m = divmod(m, 60)
 
     return "%02d:%02d:%02d" % (h, m, s)
+
+
+def youtubedl(target, fmt='bestvideo+bestaudio/best'):
+    urls = []
+    try:
+        ydl = youtube_dl.YoutubeDL({'format': fmt})
+        info = ydl.extract_info(target, download=False)
+
+        for fid in info['format_id'].split('+'):
+            for ff in info['formats']:
+                if ff['format_id'] == fid:
+                    urls.append(ff['url'])
+
+    except youtube_dl.utils.DownloadError:
+        pass
+
+    return urls
 
 
 def main():
@@ -105,11 +123,13 @@ def main():
     except (ValueError, RuntimeError) as exc:
         parser.error(exc)
 
+    # now figure out what we want to playback
     target = args.path
 
+    # if they told us to force it, skip all the checking
     if not args.force:
-        # if they gave us custom paths to an encoder, then die if they
-        # are wrong
+
+        # bail if they gave us custom ffmpeg settings and they are fubar
         try:
             if args.ffmpeg != 'ffmpeg' or args.ffprobe != 'ffprobe':
                 ap.encoder = FFmpeg(ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
@@ -117,15 +137,32 @@ def main():
             parser.exit(exc)
 
         try:
+            # see if we can play the url they gave us
             if not ap.can_play(target):
+                # if not, convert it
                 target = ap.convert(target, tmpdir=args.tmpdir)
-                target = list(target)
         except EncoderNotInstalledError:
-            print("Encoder not installed, skipping conversion")
+            # try to play anyway if the encoder isn't installed, it cant hurt
+            print("Encoder not installed, playback may not be successful.")
         except MediaParseError:
-            parser.exit("Unkonwn input format.  Use --force if you are sure your AirPlay server can play it")
+            # we have encoders installed, but can't understand the file
+            # see if it's a non-video url and youtubedl can do it for us
+            urls = youtubedl(args.target)
 
-    # if the url is on our local disk, then we need to spin up a server to start it
+            # nothing back? youtubedl doesn't know how to deal with it
+            if len(urls) == 0:
+                parser.exit("Unkonwn input format. Use --force if you are sure your AirPlay device an play it.")
+
+            # If we got a single file back, only convert if we can't play it
+            if len(urls) == 1 and not ap.can_play(urls[0]):
+                target = ap.convert(urls[0], tmpdir=args.tmpdir)
+            else:
+                # multiple urls we need to mux them
+                target = ap.convert(urls, tmpdir=args.tmpdir)
+
+    # if the resovled playback target is local, then we need to spin up
+    # a server to deliver it to the AirPlay device
+    # (if it's a list of files, then it's from the encoder and local)
     if isinstance(target, list) or os.path.exists(target):
         target = ap.serve(target)[0]
 

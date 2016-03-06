@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='airplay',
 
-    version='0.0.5',
+    version='0.0.6',
 
     description='A python client for AirPlay video',
 
@@ -33,6 +33,7 @@ setup(
     install_requires=[
         'zeroconf',
         'click',
+        'youtube-dl'
     ],
 
     tests_require=[
