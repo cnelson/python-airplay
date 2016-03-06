@@ -417,14 +417,14 @@ class TestAirPlayControls(unittest.TestCase):
 
 
 class TestAirPlayDiscovery(unittest.TestCase):
-    @patch('airplay.airplay.socket.socket')
+    @patch('airplay.airplay.socket.socket', new_callable=lambda: MockSocket)
     @patch('airplay.airplay.ServiceBrowser', new_callable=lambda: FakeServiceBrowser)
     @patch('airplay.airplay.Zeroconf', new_callable=lambda: FakeZeroconf)
     def test_timeout(self, zc, sb, sock):
         """When fast=False, find() always waits for the timeout to expire"""
 
         sb.name = 'test-device.foo.bar'
-        sb.info = zc.info = Mock(address=socket.inet_aton('192.0.2.23'), port=916)
+        sb.info = zc.info = Mock(address=socket.inet_aton('127.0.0.1'), port=916)
 
         start = time.time()
         devices = AirPlay.find(timeout=2, fast=False)
@@ -435,14 +435,14 @@ class TestAirPlayDiscovery(unittest.TestCase):
         assert devices[0].host == socket.inet_ntoa(zc.info.address)
         assert devices[0].port == zc.info.port
 
-    @patch('airplay.airplay.socket.socket')
+    @patch('airplay.airplay.socket.socket', new_callable=lambda: MockSocket)
     @patch('airplay.airplay.ServiceBrowser', new_callable=lambda: FakeServiceBrowser)
     @patch('airplay.airplay.Zeroconf', new_callable=lambda: FakeZeroconf)
     def test_fast_results(self, zc, sb, sock):
         """When fast=True find() returns as soon as there is a result"""
 
         sb.name = 'test-short'
-        sb.info = zc.info = Mock(address=socket.inet_aton('192.0.2.23'), port=916)
+        sb.info = zc.info = Mock(address=socket.inet_aton('127.0.0.1'), port=916)
 
         start = time.time()
         devices = AirPlay.find(timeout=2, fast=True)
@@ -453,7 +453,7 @@ class TestAirPlayDiscovery(unittest.TestCase):
         assert devices[0].host == socket.inet_ntoa(zc.info.address)
         assert devices[0].port == zc.info.port
 
-    @patch('airplay.airplay.socket.socket')
+    @patch('airplay.airplay.socket.socket', new_callable=lambda: MockSocket)
     @patch('airplay.airplay.ServiceBrowser', new_callable=lambda: FakeServiceBrowser)
     @patch('airplay.airplay.Zeroconf')
     def test_no_info(self, zc, sb, sock):
@@ -1169,7 +1169,7 @@ class MockSocket(object):
         pass
 
     def getpeername(self, *args, **kwargs):
-        return ('192.0.2.23', 9160)
+        return ('127.0.0.1', 9160)
 
     def getsockname(self, *args, **kwargs):
         return ('127.0.0.1', 9160)
