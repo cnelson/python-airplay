@@ -123,6 +123,8 @@ class AirPlay(object):
             self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.control_socket.settimeout(timeout)
             self.control_socket.connect((host, port))
+
+            self.host = self.control_socket.getpeername()[0]
         except socket.error as exc:
             raise ValueError("Unable to connect to {0}:{1}: {2}".format(host, port, exc))
 
@@ -463,7 +465,8 @@ class AirPlay(object):
                                 If not specified tempfile.mkdtemp() will be used
 
         Returns:
-            path (str):         A path to a file suitable for passing to serve()
+            list (index, ts):   Absolute paths for the index and transport stream
+                                for the converted file
 
         Raises:
             MediaParseError:    Unable to parse one of the input paths
@@ -485,7 +488,7 @@ class AirPlay(object):
         while not os.path.exists(index) and self._converter.is_alive():
             time.sleep(.1)
 
-        return index, transport_stream
+        return [index, transport_stream]
 
     def can_play(self, path):
         """Use the encoder to inspect the file and see if we can play it
