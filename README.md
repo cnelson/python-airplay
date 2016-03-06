@@ -26,12 +26,21 @@ Easy!
     # or play to a specific device
     $ airplay --device 192.0.2.23:7000 http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4
 
-    $ airplay --help
-    usage: airplay [-h] [--position POSITION] [--device DEVICE] path
+    # if ffmpeg/ffprobe is installed, you can playback files in any format
+    $ airplay /path/to/some/old_xvid.avi
 
-    Playback a local or remote video file via AirPlay. This does not do any on-
-    the-fly transcoding (yet), so the file must already be suitable for the
-    AirPlay device.
+    # and from most video sites URLs directly
+    $ airplay https://www.youtube.com/watch?v=dQw4w9WgXcQ
+
+    $ airplay --help
+    usage: airplay [-h] [--position POSITION] [--device DEVICE] [--force]
+                   [--ffmpeg FFMPEG] [--ffprobe FFPROBE] [--tmpdir TMPDIR]
+                   path
+
+    Playback a local or remote video file via AirPlay. If ffmpeg and ffprobe are
+    available, video will automatically be converted to work with your AirPlay
+    device if needed. Static builds of these tools are available at
+    https://ffmpeg.org/download.html
 
     positional arguments:
       path                  An absolute path or URL to a video file
@@ -39,11 +48,18 @@ Easy!
     optional arguments:
       -h, --help            show this help message and exit
       --position POSITION, --pos POSITION, -p POSITION
-                            Where to being playback [0.0-1.0]
+                            Where to being playback [0.0-1.0] (default: 0.0)
       --device DEVICE, --dev DEVICE, -d DEVICE
                             Playback video to a specific device
-                            [<host/ip>:(<port>)]
-
+                            [<host/ip>:(<port>)] (default: None)
+      --force, -f           Force playback of path as given. Do not attempt
+                            parsing or conversion (default: False)
+      --ffmpeg FFMPEG       The ffmpeg binary to use for conversion (if needed)
+                            (default: ffmpeg)
+      --ffprobe FFPROBE     The ffprobe binary to use for parsing (if needed)
+                            (default: ffprobe)
+      --tmpdir TMPDIR       Use this temp directory when converting files
+                            (default: None)
 
 
 ## I want to use this package in my own application
@@ -93,9 +109,24 @@ Awesome!  This package is compatible with Python >= 2.7 (including Python 3!)
     >>> ap.stop()
     True
 
+    # Use ffmpeg to see if a file is playable
+    >>> ap.can_play('/tmp/home_movie.mp4')
+    True
+
+    >>> ap.can_play('/tmp/old_movie.avi')
+    False
+
+    # use ffmpeg to convert a file to the correct format for the Airplay device
+    >>> ap.convert('/tmp/old_movie.avi')
+    ['/tmp/tmpnweUsp/airplay.m3u8', '/tmp/tmpnweUsp/airplay.ts']
+
+    # configure the encoder to use custom versions of ffmpeg
+    >>> from airplay import FFmpeg
+    >>> ap.encoder = FFmpeg(ffmpeg='/home/foo/bin/ffmpeg')
+
     # Start a webserver to stream a local file to an AirPlay device
     >>> ap.serve('/tmp/home_movie.mp4')
-    'http://192.0.2.114:51058/home_movie.mp4'
+    ['http://192.0.2.114:51058/home_movie.mp4']
 
     # Playback the generated URL
     >>> ap.play('http://192.0.2.114:51058/home_movie.mp4')
@@ -265,6 +296,65 @@ A generator that yields events as they are emitted by the AirPlay device
 #### Yields
 * **dict:** key/value pairs describing the event emitted by the AirPlay device
 
+
+
+### can_play(path)
+Use the encoder to inspect the file and determine if the AirPlay device can play it
+
+    >>> ap.can_play('/tmp/home_movie.mp4')
+    True
+
+    >>> ap.can_play('/tmp/old_movie.avi')
+    False
+
+
+#### Arguments
+* **path (str):**  An absoulte path or URL to a file to be checked.
+
+#### Returns
+* **True:**     The file can be played.
+* **False:**    The file cannot be played.
+
+#### Raises
+* **airplay.MediaParseError:**  path could not be parsed.
+* **airplay.EncoderNotInstalledError** ffprobe is not installed or is an incorrect version.
+
+
+### convert(paths, tmpdir=None)
+Start a encoder process to convert path to a version that can be played on an AirPlay device. The output format is a HLS stream, with an index file, and a single transport stream
+
+These files can be passed to serve() to stream them to the AirPlay device.
+
+    >>> ap.convert('/tmp/old_movie.avi')
+    ['/tmp/tmpnweUsp/airplay.m3u8', '/tmp/tmpnweUsp/airplay.ts']
+
+    >>> ap.serve(['/tmp/tmpnweUsp/airplay.m3u8', '/tmp/tmpnweUsp/airplay.ts'])
+    ['http://192.0.2.114:51058/airplay.m3u8', 'http://192.0.2.114:51058/airplay.ts']
+
+    >>> ap.play('http://192.0.2.114:51058/airplay.m3u8')
+    True
+
+
+#### Arguments
+* **paths (list):**           A list of one or more input files or URLs which will be combined and converted
+* **tmpdir (str):**          A path to a directory to store the converted video. If not specified tempfile.mkdtemp() will be used
+
+### Returns
+* **list (index, ts):**   Absolute paths for the index and transport stream for the converted file
+
+### Raises
+* **MediaParseError:**          Unable to parse one of the input paths
+* **EncoderNotInstalledError:** ffmpeg could not be executed or was not the correct version
+
+### Properties
+
+### .encoder
+
+This property can be set if custom ffmpeg / ffprobe paths are required.
+By default, AirPlay expects to find 'ffmpeg' and 'ffprobe' in the PATH.
+
+    >>> from airplay import FFmpeg
+    >>> ap.encoder = FFmpeg(ffmpeg='/home/foo/bin/ffmpeg', ffprobe='/some/path/to/ffprobe')
 
 ## Need more information?  
 

@@ -458,11 +458,11 @@ class AirPlay(object):
         """Start a encoder process to convert `path` to a version that can be
         played on an AirPlay device.
 
-        paths (list):           A list of one or more input files or URLs
-                                which will be combined and converted
-
-        tmpdir (str):           A path to a directory to store the converted video.
-                                If not specified tempfile.mkdtemp() will be used
+        Args:
+            paths (list):           A list of one or more input files or URLs
+                                    which will be combined and converted
+            tmpdir (str):           A path to a directory to store the converted video.
+                                    If not specified tempfile.mkdtemp() will be used
 
         Returns:
             list (index, ts):   Absolute paths for the index and transport stream

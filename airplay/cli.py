@@ -64,8 +64,10 @@ def youtubedl(target, fmt='bestvideo+bestaudio/best'):
 def main():
     parser = argparse.ArgumentParser(
         description="Playback a local or remote video file via AirPlay. "
-                    "This does not do any on-the-fly transcoding (yet), "
-                    "so the file must already be suitable for the AirPlay device.",
+                    "If ffmpeg and ffprobe are available, video will automatically "
+                    "be converted to work with your AirPlay device if needed. "
+                    "Static builds of these tools are available at "
+                    "https://ffmpeg.org/download.html",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -147,7 +149,7 @@ def main():
         except MediaParseError:
             # we have encoders installed, but can't understand the file
             # see if it's a non-video url and youtubedl can do it for us
-            urls = youtubedl(args.target)
+            urls = youtubedl(target)
 
             # nothing back? youtubedl doesn't know how to deal with it
             if len(urls) == 0:
