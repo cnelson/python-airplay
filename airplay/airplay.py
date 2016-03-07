@@ -128,6 +128,9 @@ class AirPlay(object):
         except socket.error as exc:
             raise ValueError("Unable to connect to {0}:{1}: {2}".format(host, port, exc))
 
+    def __repr__(self):
+        return '<{0} {1}({2}:{3})>'.format(self.__class__.__name__, self.name, self.host, self.port)
+
     @property
     def encoder(self):
         """Don't instantiate the encoder until we access it the first time"""
