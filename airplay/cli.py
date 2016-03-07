@@ -44,11 +44,14 @@ def humanize_seconds(secs):
     return "%02d:%02d:%02d" % (h, m, s)
 
 
-def youtubedl(target, fmt='bestvideo+bestaudio/best'):
+def youtubedl(target, fmt='best[ext=mp4]/bestvideo+bestaudio'):
     urls = []
     try:
         ydl = youtube_dl.YoutubeDL({'format': fmt})
         info = ydl.extract_info(target, download=False)
+
+        if 'entries' in info:
+            info = info['entries'][0]
 
         for fid in info['format_id'].split('+'):
             for ff in info['formats']:
@@ -153,11 +156,11 @@ def main():
 
             # nothing back? youtubedl doesn't know how to deal with it
             if len(urls) == 0:
-                parser.exit("Unkonwn input format. Use --force if you are sure your AirPlay device an play it.")
+                parser.exit("Unknown input format. Use --force if you are sure your AirPlay device an play it.")
 
-            # If we got a single file back, only convert if we can't play it
-            if len(urls) == 1 and not ap.can_play(urls[0]):
-                target = ap.convert(urls[0], tmpdir=args.tmpdir)
+            # If we got a single file back, and we can play it, we don't need to do anything
+            if len(urls) == 1 and ap.can_play(urls[0]):
+                target = urls[0]
             else:
                 # multiple urls we need to mux them
                 target = ap.convert(urls, tmpdir=args.tmpdir)

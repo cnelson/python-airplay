@@ -481,7 +481,13 @@ class AirPlay(object):
         self._converter = Process(target=self.encoder.segment, args=(paths, work_dir))
         self._converter.start()
 
-        atexit.register(shutil.rmtree, work_dir)
+        def cleanup(work_dir):
+            try:
+                shutil.rmtree(work_dir)
+            except OSError:
+                pass
+
+        atexit.register(cleanup, work_dir)
 
         # wait until the target file exists or the converter dies
 
